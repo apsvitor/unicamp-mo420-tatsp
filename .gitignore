@@ -37,3 +37,4 @@ TATSP_base-article.pdf
 trigger-arc-tsp-MESS2024-competition.pdf
 
 *.log
+implementations/runner_v3/instances/instances*

@@ -28,8 +28,26 @@ end
 # --------------------------------------------------------------
 function TriggerArcTSP_lb_rlxlag(T::TriggerArcTSP)
 	StartingTime = time()  # To compute the time used by this routine.
+	active_constraints = [
+		true, 	# C1
+		true,	# C2
+		true, 	# C3
+		true,	# C4
+		true,	# C5
+		false,	# C6
+		false,	# C7
+		false,	# C8
+		false,	# C9
+		false	# C10
+	]
+	model = _build_ilp(T, active_constraints)
 
-	# Fill your routine here
+	# First attempt: dualize some of the ILP constraints.
+	# C6 to C10 seem to be the most "complicated" constraints.
+
+
+
+
 
 
 
@@ -102,11 +120,17 @@ end
 # Auxiliary routines to simplify and avoid redundances
 # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-function _build_ilp(T::TriggerArcTSP)
+function _build_ilp(
+	T::TriggerArcTSP,
+	constraint_selection::Vector{Bool}=fill(true, 10))
 	"""Builds the ILP model for the Trigger Arc TSP problem.
 
 	Args:
 		T (TriggerArcTSP): The TriggerArcTSP instance containing the problem data.
+		constraint_selection (Vector{Bool}): A vector indicating which constraints to
+			include in the model.
+			Each element corresponds to a constraint (from C1 to C10, C0 is mandatory),
+			where `true` means the constraint is included, and `false` means it is not.
 	Returns:
 		Model: The JuMP model representing the ILP.
 	"""
@@ -163,19 +187,102 @@ function _build_ilp(T::TriggerArcTSP)
 	# #								Model Constraints
 	# # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
+	# C0: Starting node constraint (mandatory).
+	__add_constraint_C0(model, u)
+
+	# C1: Hamiltonian Cycle Constraint
+	# DISCLAIMER: This constraint is redundant and will remain deactivated.
+	# C3 & C4 implicitly ensure that the solution is a Hamiltonian cycle.
+	# if constraint_selection[1]
+		# __add_constraint_C1(model, x, T)
+	# end
+
+	# C2: Visitation order of nodes.
+	if constraint_selection[2]
+		__add_constraint_C2(model, u, x, T)
+	end
+
+	# C3 & C4: In-degree and Out-degree Constraints, respectively.
+	# Each node must have exactly one incoming and one outgoing arc.
+	if constraint_selection[3]
+		__add_constraint_C3(model, x, T)
+	end
+	if constraint_selection[4]
+		__add_constraint_C4(model, x, T)
+	end
+
+	# C5: Ensures that the costs of the arcs are either the base cost or the modified
+	# cost, and only if the arc is in the tour.
+	if constraint_selection[5]
+		__add_constraint_C5(model, y, y_r, x, T)
+	end
+
+	# C6: For each relation r = ((i,j),(h,k)), the corresponding variable y_r be active
+	# if the tour traverses the trigger arc (i,j), i.e., if x_ij = 1
+	if constraint_selection[6]
+		__add_constraint_C6(model, y_r, x, T)
+	end
+
+	# C7: For each relation r = ((i,j),(h,k)) ensure that if the arc (i,j) does not
+	# precede the arc (h,k) in the solution, then the variable y_r = 0.
+	if constraint_selection[7]
+		__add_constraint_C7(model, u, y_r, T)
+	end
+
+	# C8: If arc (h,k) does not precede arc (i,j) in the solution, then variable
+	# y^r = 0, implying that variables y^r may only assume the value 1 if arc (h,k)
+	# precedes arc (i,j) in the solution.
+	if constraint_selection[8]
+		__add_constraint_C8(model, u, y_hat, T)
+	end
+
+	# C9: For each relation r = ((i,j),(h,k)), the trigger arc (i,j) can only be used
+	# if at least one of the following three conditions is satisfied:
+	#	(1) arc (h,k) is not used;
+	#	(2) variable y_hk associated with the base cost of arc (h,k) is not activated;
+	#	(3) if both arcs (i,j) and (h,k) are used in the solution, the arc (i,j) is
+	#		traversed after the arc (h,k).
+	if constraint_selection[9]
+		__add_constraint_C9(model, x, y, y_hat, T)
+	end
+
+	# C10: For each pair of relations r1 = ((i,j),(h,k)), r2 = ((^i, ^j), (h, k))
+	# differing only by the trigger arc requires that the active relation is the one
+	# whose trigger arc is traversed last but before the arc (h,k) in the tour.
+	if constraint_selection[10]
+		__add_constraint_C10(model, u, y_hat, y_r, x, T)
+	end
+
+	return model
+end
+
+function __add_constraint_C0(
+	model::Model,
+	u::Vector{VariableRef})
 	# C0: Starting node constraint.
 	@constraint(
 		model,
 		u[1] == 1,
 		base_name="C0"
 	)
+end
 
-	# C1: Hamiltonian Cycle Constraint
-	# DISCLAIMER: This constraint is redundant and will remain deactivated.
-	# C3 & C4 implicitly ensure that the solution is a Hamiltonian cycle.
-	# @constraint(model, sum(x[a] for a in 1:T.NArcs) == T.NNodes)
-	
-	# C2: Visitation order of nodes.
+function __add_constraint_C1(
+	model::Model,
+	x::Vector{VariableRef},
+	T::TriggerArcTSP)
+	@constraint(
+		model,
+		sum(x[a] for a in 1:T.NArcs) == T.NNodes,
+		base_name="C1"
+	)
+end
+
+function __add_constraint_C2(
+	model::Model,
+	u::Vector{VariableRef},
+	x::Vector{VariableRef},
+	T::TriggerArcTSP)
 	BIG_M_C2 = T.NNodes
 	for a in 1:T.NArcs
 		i = T.Arc[a].u
@@ -188,28 +295,40 @@ function _build_ilp(T::TriggerArcTSP)
 			)
 		end
 	end
+end
 
-	# C3 & C4: In-degree and Out-degree Constraints
-	# Each node must have exactly one incoming and one outgoing arc.
+function __add_constraint_C3(
+	model::Model,
+	x::Vector{VariableRef},
+	T::TriggerArcTSP)
 	for v in 1:T.NNodes
-		# C3: In-degree constraint
 		@constraint(
 			model,
 			sum(x[a] for a in 1:T.NArcs if T.Arc[a].v == v) == 1,
 			base_name="C3"
 		)
+	end
+end
 
-		# C4: Out-degree constraint
+function __add_constraint_C4(
+	model::Model,
+	x::Vector{VariableRef},
+	T::TriggerArcTSP)
+	for v in 1:T.NNodes
 		@constraint(
 			model,
 			sum(x[a] for a in 1:T.NArcs if T.Arc[a].u == v) == 1,
 			base_name="C4"
 		)
 	end
+end
 
-	# C5: Ensures that the costs of the arcs are either the base cost or the modified
-	# cost, and only if the arc is in the tour.
-	
+function __add_constraint_C5(
+	model::Model,
+	y::Vector{VariableRef},
+	y_r::Vector{VariableRef},
+	x::Vector{VariableRef},
+	T::TriggerArcTSP)
 	for a in 1:T.NArcs
 		# Set of relationships associated with arc a.
 		R_a = findall(triggers_a -> triggers_a.target_arc_id == a, T.Trigger)
@@ -220,9 +339,13 @@ function _build_ilp(T::TriggerArcTSP)
 			base_name="C5"
 		)
 	end
+end
 
-	# C6: For each relation r = ((i,j),(h,k)), the corresponding variable y_r be active
-	# if the tour traverses the trigger arc (i,j), i.e., if x_ij = 1
+function __add_constraint_C6(
+	model::Model,
+	y_r::Vector{VariableRef},
+	x::Vector{VariableRef},
+	T::TriggerArcTSP)
 	for r in 1:T.NTriggers
 		trigger_arc = T.Trigger[r].trigger_arc_id
 		@constraint(
@@ -231,9 +354,13 @@ function _build_ilp(T::TriggerArcTSP)
 			base_name="C6"
 		)
 	end
+end
 
-	# C7: For each relation r = ((i,j),(h,k)) ensure that if the arc (i,j) does not
-	# precede the arc (h,k) in the solution, then the variable y_r = 0.
+function __add_constraint_C7(
+	model::Model,
+	u::Vector{VariableRef},
+	y_r::Vector{VariableRef},
+	T::TriggerArcTSP)
 	BIG_M_C7 = T.NNodes
 	for r in 1:T.NTriggers
 		i = T.Arc[T.Trigger[r].trigger_arc_id].u
@@ -244,10 +371,13 @@ function _build_ilp(T::TriggerArcTSP)
 			base_name="C7"
 		)
 	end
+end
 
-	# C8: If arc (h,k) does not precede arc (i,j) in the solution, then variable
-	# y^r = 0, implying that variables y^r may only assume the value 1 if arc (h,k)
-	# precedes arc (i,j) in the solution.
+function __add_constraint_C8(
+	model::Model,
+	u::Vector{VariableRef},
+	y_hat::Vector{VariableRef},
+	T::TriggerArcTSP)
 	BIG_M_C8 = T.NNodes
 	for r in 1: T.NTriggers
 		h = T.Arc[T.Trigger[r].target_arc_id].u
@@ -258,13 +388,14 @@ function _build_ilp(T::TriggerArcTSP)
 			base_name="C8"
 		)
 	end
+end
 
-	# C9: For each relation r = ((i,j),(h,k)), the trigger arc (i,j) can only be used
-	# if at least one of the following three conditions is satisfied:
-	#	(1) arc (h,k) is not used;
-	#	(2) variable y_hk associated with the base cost of arc (h,k) is not activated;
-	#	(3) if both arcs (i,j) and (h,k) are used in the solution, the arc (i,j) is
-	#		traversed after the arc (h,k).
+function __add_constraint_C9(
+	model::Model,
+	x::Vector{VariableRef},
+	y::Vector{VariableRef},
+	y_hat::Vector{VariableRef},
+	T::TriggerArcTSP)
 	for r in 1:T.NTriggers
 		trigger_arc = T.Trigger[r].trigger_arc_id
 		target_arc = T.Trigger[r].target_arc_id
@@ -274,14 +405,19 @@ function _build_ilp(T::TriggerArcTSP)
 			base_name="C9"
 		)
 	end
+end
 
-	# C10: For each pair of relations r1 = ((i,j),(h,k)), r2 = ((^i, ^j), (h, k))
-	# differing only by the trigger arc requires that the active relation is the one
-	# whose trigger arc is traversed last but before the arc (h,k) in the tour.
+function __add_constraint_C10(
+	model::Model,
+	u::Vector{VariableRef},
+	y_hat::Vector{VariableRef},
+	y_r::Vector{VariableRef},
+	x::Vector{VariableRef},
+	T::TriggerArcTSP)
 	BIG_M_C10 = T.NNodes
 	for r1 in 1:T.NTriggers
-		for r2 in 1:T.NTriggers
-			if r1 != r2 && T.Trigger[r1].target_arc_id == T.Trigger[r2].target_arc_id
+		for r2 in r1+1:T.NTriggers
+			if T.Trigger[r1].target_arc_id == T.Trigger[r2].target_arc_id
 				a_hat_r2 = T.Trigger[r2].trigger_arc_id
 				i_hat_r2 = T.Arc[a_hat_r2].u
 				i_r1 = T.Arc[T.Trigger[r1].trigger_arc_id].u
@@ -293,9 +429,8 @@ function _build_ilp(T::TriggerArcTSP)
 			end
 		end
 	end
-
-	return model
 end
+
 
 function _optimization_status_check(model::Model)
 	"""Checks the optimization status and handles problems.
@@ -345,5 +480,5 @@ function _print_path(model::Model ,T::TriggerArcTSP)
 	for v in u_values
 		print("[", Int(v), "] -> ")
 	end
-	println("[", u_values[1], "]")
+	println("[", Int(u_values[1]), "]")
 end

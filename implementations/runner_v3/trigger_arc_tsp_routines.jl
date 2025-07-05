@@ -84,48 +84,70 @@ end
 function TriggerArcTSP_ilp(T::TriggerArcTSP)
 	StartingTime = time()  # To compute the time used by this routine.
 
-	# @infiltrate
+	model = _build_ilp(T)
+
+	optimize!(model)
+
+	_optimization_statistics(model)
+	_optimization_status_check(model)
+	_print_path(model, T)
+
+	# To compute the time used by this routine.
+	T.time_ilp = ceil(time() - StartingTime)
+end
+# --------------------------------------------------------------
+
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# Auxiliary routines to simplify and avoid redundances
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+function _build_ilp(T::TriggerArcTSP)
+	"""Builds the ILP model for the Trigger Arc TSP problem.
+
+	Args:
+		T (TriggerArcTSP): The TriggerArcTSP instance containing the problem data.
+	Returns:
+		Model: The JuMP model representing the ILP.
+	"""
 	model = Model(Gurobi.Optimizer)
 	
-	# # +++++++++++++++++++++
-	# #   Model Variables
-	# # +++++++++++++++++++++
+	# # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	# # 							Model Variables
+	# # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 	# [x_a] -> x_ij: 1 if the arc (i, j) is in the solution, 0 otherwise.
 	x = @variable(model, x[i=1:T.NArcs], Bin)
 
-	# [y_a]: 1 if the arc a = (i, j) is in the solution and has no active relationship, 0 otherwise.
+	# [y_a]: 1 if the arc a = (i, j) is in the solution and has no active relationship,
+	# 0 otherwise.
 	# Implication: if y_a = 1, then the cost of the arc will be the base cost: c(a).
 	y = @variable(model, y[i=1:length(T.Arc)], Bin)
 
 	for a in 1:T.NArcs
 		set_name(x[a], "x_"*string(a))
 		set_name(y[a], "y_"*string(a))
-		# set_name(x[a], "x_"*string(T.Arc[a].u)*"_"*string(T.Arc[a].v))
-		# set_name(y[a], "y_"*string(T.Arc[a].u)*"_"*string(T.Arc[a].v))
 	end
 
 	# [y_r]: 1 if the relationship r is active, 0 otherwise.
 	y_r = @variable(model, y_r[1:T.NTriggers], Bin)
 	
-	# [y^_r] -> y_hat: 1 if the relationship r does not occur
-	# either because the trigger arc occurred after the target arc
-	# or if the target arc is not in the solution.
+	# [y^_r] -> y_hat_r: 1 if the relationship r does not occur either because the
+	# trigger arc occurred after the target arc or if the target arc is not in the
+	# solution.
 	y_hat = @variable(model, y_hat[1:T.NTriggers], Bin)
 	
 	for r in 1:T.NTriggers
 		set_name(y_r[r], "y_r"*string(r))
 		set_name(y_hat[r], "y^_r"*string(r))
-		# set_name(y_r[r], "y_r"*string(T.Trigger[r].trigger_arc_id)*"_"*string(T.Trigger[r].target_arc_id))
-		# set_name(y_hat[r], "y^_r"*string(T.Trigger[r].trigger_arc_id)*"_"*string(T.Trigger[r].target_arc_id))
 	end
 
 	# [u_i]: auxiliary variable indicating the visitation order of node i.
 	u = @variable(model, u[i=1:T.NNodes], lower_bound=0, upper_bound=T.NNodes, Int)
 
-	# # +++++++++++++++++++++
-	# #  Objective Function
-	# # +++++++++++++++++++++
+	# # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	# #								Objective Function
+	# # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 	# Minimize the total cost of the tour considering:
 	# - The base cost of the arcs when they are not affected by any trigger.
@@ -137,9 +159,9 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 		+ sum(T.Arc[a].cost * y[a] for a in 1:T.NArcs)
 	)
 
-	# # +++++++++++++++++++++
-	# #   Model Constraints
-	# # +++++++++++++++++++++
+	# # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	# #								Model Constraints
+	# # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 	# C0: Starting node constraint.
 	@constraint(
@@ -185,12 +207,13 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 		)
 	end
 
-	# C5: Ensures that the costs of the arcs are either the base cost or the modified cost,
-	# and only if the arc is in the tour.
+	# C5: Ensures that the costs of the arcs are either the base cost or the modified
+	# cost, and only if the arc is in the tour.
 	
-	# R_a: Set of relationships associated with arc a.
 	for a in 1:T.NArcs
+		# Set of relationships associated with arc a.
 		R_a = findall(triggers_a -> triggers_a.target_arc_id == a, T.Trigger)
+
 		@constraint(
 			model,
 			y[a] + sum(y_r[r] for r in R_a) == x[a],
@@ -209,9 +232,8 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 		)
 	end
 
-	# C7: For each relation r = ((i,j),(h,k)) ensure that
-	# if the arc (i,j) does not precede the arc (h,k) in
-	# the solution, then the variable y_r = 0.
+	# C7: For each relation r = ((i,j),(h,k)) ensure that if the arc (i,j) does not
+	# precede the arc (h,k) in the solution, then the variable y_r = 0.
 	BIG_M_C7 = T.NNodes
 	for r in 1:T.NTriggers
 		i = T.Arc[T.Trigger[r].trigger_arc_id].u
@@ -223,9 +245,9 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 		)
 	end
 
-	# C8: If arc (h,k) does not precede arc (i,j) in the solution,
-	# then variable y^r = 0, implying that variables y^r may only
-	# assume the value 1 if arc (h,k) precedes arc (i,j) in the solution.
+	# C8: If arc (h,k) does not precede arc (i,j) in the solution, then variable
+	# y^r = 0, implying that variables y^r may only assume the value 1 if arc (h,k)
+	# precedes arc (i,j) in the solution.
 	BIG_M_C8 = T.NNodes
 	for r in 1: T.NTriggers
 		h = T.Arc[T.Trigger[r].target_arc_id].u
@@ -237,11 +259,12 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 		)
 	end
 
-	# C9: For each relation r = ((i,j),(h,k)), the trigger arc (i,j) can only
-	# be used if at least one of the following three conditions is satisfied:
-	#	(1) the arc (h,k) is not used,
-	#	(2) the variable y_hk associated with the base cost of arc (h,k) is not activated,
-	#	(3) if both arcs (i,j) and (h,k) are used in the solution, the arc (i,j) is traversed after the arc (h,k).
+	# C9: For each relation r = ((i,j),(h,k)), the trigger arc (i,j) can only be used
+	# if at least one of the following three conditions is satisfied:
+	#	(1) arc (h,k) is not used;
+	#	(2) variable y_hk associated with the base cost of arc (h,k) is not activated;
+	#	(3) if both arcs (i,j) and (h,k) are used in the solution, the arc (i,j) is
+	#		traversed after the arc (h,k).
 	for r in 1:T.NTriggers
 		trigger_arc = T.Trigger[r].trigger_arc_id
 		target_arc = T.Trigger[r].target_arc_id
@@ -253,8 +276,8 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 	end
 
 	# C10: For each pair of relations r1 = ((i,j),(h,k)), r2 = ((^i, ^j), (h, k))
-	# differing only by the trigger arc requires that the active relation is the
-	# one whose trigger arc is traversed last but before the arc (h,k) in the visit sequence.
+	# differing only by the trigger arc requires that the active relation is the one
+	# whose trigger arc is traversed last but before the arc (h,k) in the tour.
 	BIG_M_C10 = T.NNodes
 	for r1 in 1:T.NTriggers
 		for r2 in 1:T.NTriggers
@@ -271,8 +294,16 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 		end
 	end
 
-	optimize!(model)
-	# Check the optimization status
+	return model
+end
+
+function _optimization_status_check(model::Model)
+	"""Checks the optimization status and handles problems.
+
+	When a model is not optimal, computes conflicts to identify possible issues.
+	Args:
+		model (Model): The JuMP model to check.
+	"""
 	if termination_status(model) != MOI.OPTIMAL
 		if termination_status(model) == MOI.TIME_LIMIT
 			error("It was not possible to obtain optimal solution, due to time limit.")
@@ -286,6 +317,33 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 			error("It was not possible to obtain optimal solution.")
 		end
 	end
-	T.time_ilp = ceil(time() - StartingTime) # To compute the time used by this routine.
 end
-# --------------------------------------------------------------
+
+function _optimization_statistics(model::Model)
+	"""Prints the optimization statistics of the model.
+
+	Args:
+		model (Model): The JuMP model to print statistics for.
+	"""
+	println("Optimization Statistics:")
+	println("  Objective Value: ", objective_value(model))
+	println("  Solve Time: ", solve_time(model), " seconds")
+	println("  Number of Variables: ", num_variables(model))
+	println("  Number of Constraints: ", num_constraints(model, count_variable_in_set_constraints=false))
+	println("  Termination Status: ", termination_status(model))
+end
+
+function _print_path(model::Model ,T::TriggerArcTSP)
+	"""Prints the path of the solution.
+
+	Args:
+		model (Model): The JuMP model containing the solution.
+		T (TriggerArcTSP): The TriggerArcTSP instance containing the problem data.
+	"""
+	println("Solution Path:")
+	u_values = value.(model[:u])
+	for v in u_values
+		print("[", Int(v), "] -> ")
+	end
+	println("[", u_values[1], "]")
+end

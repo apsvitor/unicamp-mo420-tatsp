@@ -31,7 +31,7 @@ all: $(foreach instance, $(INSTANCES), $(instance).log)
 		--maxtime_ub_colgen 1060 \
 		--maxtime_ilp 1070 \
 		--ra 291207 \
-		-l logs/test_$*.log \
+		--logfile logs/test_$*.log \
 		--verbose
 
 test:
@@ -47,7 +47,7 @@ test:
 			--maxtime_ub_colgen 1060 \
 			--maxtime_ilp 1070 \
 			--ra 291207 \
-			-l trigger_arc_tsp.log \
+			--logfile trigger_arc_tsp.log \
 			--verbose
 
 # Regra 'clean': remove todos os arquivos de log gerados

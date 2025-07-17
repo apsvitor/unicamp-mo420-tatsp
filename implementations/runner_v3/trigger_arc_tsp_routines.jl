@@ -17,9 +17,340 @@ using Gurobi
 using LinearAlgebra
 
 # --------------------------------------------------------------
+# function __validate_tour(tour_edges::Vector{Tuple{Int,Int}}, nnodes::Int)
+#     # primordial condition: tour length == nnodes
+# 	if length(tour_edges) != nnodes
+#         return false
+#     end
+
+#     next = Dict{Int,Int}()
+#     visited = Set{Int}()
+
+#     for (i, j) in tour_edges
+#         if haskey(next, i)
+#             return false
+#         end
+#         next[i] = j
+#     end
+
+#     current = first(keys(next))
+#     for _ in 1:nnodes
+# 		# check for subcycles
+#         if current in visited
+#             return false
+#         end
+#         push!(visited, current)
+#         current = get(next, current, nothing)
+#         # unconnected
+# 		if current === nothing
+#             return false
+#         end
+#     end
+
+#     # guarantee if the last node cycles back to the first
+#     return current == first(keys(next)) && length(visited) == nnodes
+# end
+
+# function __build_greedy_tour(T::TriggerArcTSP, x_star::Dict{Tuple{Int, Int}, Float64})
+# 	nnodes = T.NNodes
+# 	sorted_arcs = sort(collect(keys(x_star)), by = a -> -x_star[a])
+
+# 	in_degree	= Dict(i => 0 for i in 1:nnodes)
+# 	out_degree	= Dict(i => 0 for i in 1:nnodes)
+# 	parent		= Dict(i => i for i in 1:nnodes)
+# 	edges		= Tuple{Int, Int}[]
+
+# 	# basic union-find
+# 	function __find(u)
+# 		while parent[u] != u
+# 			parent[u] = parent[parent[u]]
+# 			u = parent[u]
+# 		end
+# 		return u
+# 	end
+
+# 	function __union(u, v)
+# 		pu, pv = __find(u), __find(v)
+# 		if pu == pv
+# 			return false
+# 		end
+
+# 		parent[pu] = pv
+# 		return true
+# 	end
+
+# 	first_node = 1
+
+# 	for (i, j) in sorted_arcs
+# 		if i == j || out_degree[i] == 1 || in_degree[j] == 1
+# 			continue
+# 		end
+
+# 		if j == first_node
+# 			continue
+# 		end
+
+# 		if length(edges) == nnodes - 1
+# 			break
+# 		end
+
+# 		if __union(i, j)
+# 			push!(edges, (i, j))
+# 			out_degree[i]	+= 1
+# 			in_degree[j]	+= 1
+# 		end
+# 	end
+# 	possible_last_nodes = [
+# 		i for i in 1:nnodes
+# 			if out_degree[i] == 0
+# 				&& i != first_node 
+# 				&& (i, first_node) in keys(x_star)
+# 	]
+# 	if !isempty(possible_last_nodes)
+# 		# picking out the node with biggest x BECAUSE REASONS. 
+# 		last_node = argmax(i -> x_star[(i, first_node)], possible_last_nodes)
+#     	push!(edges, (last_node, first_node))
+#     end
+
+# 	return edges
+# end
+
+# function __trigger_impacts_by_arc(T::TriggerArcTSP)
+#     arc_triggers = Dict{Int, Vector{Tuple{Int, Float64}}}()
+
+#     for (arc_id, arc) in enumerate(T.Arc)
+#         R_a = findall(tr -> tr.target_arc_id == arc_id, T.Trigger)
+
+#         impacts = [
+#             (trigger_id, T.Trigger[trigger_id].cost - arc.cost)
+#             for trigger_id in R_a
+#         ]
+
+#         arc_triggers[arc_id] = sort(impacts, by = t -> t[2])
+#     end
+
+#     return arc_triggers
+# end
+
+# function __trigger_scores(T::TriggerArcTSP, x_star::Dict{Tuple{Int,Int}, Float64})
+#     trigger_scores = Dict{Int, Float64}()
+
+#     for (trigger_id, trigger) in enumerate(T.Trigger)
+#         affected_arc_id = trigger.target_arc_id
+#         arc = T.Arc[affected_arc_id]
+#         arc_key = (arc.u, arc.v)
+
+#         # Se esse arco está em x_star
+#         if haskey(x_star, arc_key)
+#             delta = trigger.cost - arc.cost
+#             trigger_scores[trigger_id] = x_star[arc_key] * delta
+#         else
+#             trigger_scores[trigger_id] = 0.0  # ou penalizar
+#         end
+#     end
+
+#     return trigger_scores
+# end
+
+# function __fix_bad_triggers!(model_vars, trigger_scores; pct_to_fix = 0.10)
+#     n = length(trigger_scores)
+#     n_fix = round(Int, pct_to_fix * n)
+
+#     sorted = sort(collect(trigger_scores), by = p -> -p[2])  # maiores impactos primeiro
+#     to_fix = first(sorted, n_fix)
+
+#     for (trigger_id, _) in to_fix
+#         fix(model_vars["y"][trigger_id], 0.0)
+#     end
+
+#     return [trigger_id for (trigger_id, _) in to_fix]  
+# end
+
+function _linear_relaxation_lb(T::TriggerArcTSP)
+	model, model_vars = _build_ilp(T)
+
+	for var_x in keys(model_vars["x"])
+		unset_binary(model_vars["x"][var_x])
+		set_lower_bound(model_vars["x"][var_x], 0.0)
+		set_upper_bound(model_vars["x"][var_x], 1.0)
+	end
+	for var_y in keys(model_vars["y"])
+		unset_binary(model_vars["y"][var_y])
+		set_lower_bound(model_vars["y"][var_y], 0.0)
+		set_upper_bound(model_vars["y"][var_y], 1.0)
+	end
+	for var_y_r in keys(model_vars["y_r"])
+		unset_binary(model_vars["y_r"][var_y_r])
+		set_lower_bound(model_vars["y_r"][var_y_r], 0.0)
+		set_upper_bound(model_vars["y_r"][var_y_r], 1.0)
+	end
+	for var_y_hat in keys(model_vars["y_hat"])
+		unset_binary(model_vars["y_hat"][var_y_hat])
+		set_lower_bound(model_vars["y_hat"][var_y_hat], 0.0)
+		set_upper_bound(model_vars["y_hat"][var_y_hat], 1.0)
+	end
+	for var_u in keys(model_vars["u"])
+		unset_integer(model_vars["u"][var_u])
+		set_lower_bound(model_vars["u"][var_u], 1.0)
+		set_upper_bound(model_vars["u"][var_u], T.NNodes)
+	end
+
+	optimize!(model)
+
+	LB = objective_value(model)
+	return model, model_vars, LB
+end
+
+function __compute_y_r_scores(T::TriggerArcTSP, x_star::Dict{Tuple{Int, Int}, Float64})
+    scores = Dict{Int, Float64}()
+
+    for (r_id, trigger) in enumerate(T.Trigger)
+        arc_id = trigger.target_arc_id
+        arc = T.Arc[arc_id]
+        arc_key = (arc.u, arc.v)
+
+        if haskey(x_star, arc_key)
+            delta = trigger.cost - arc.cost
+            scores[r_id] = x_star[arc_key] * delta
+        else
+            scores[r_id] = 0.0
+        end
+    end
+
+    return scores
+end
+
+function __fix_bad_y_r!(model_vars, scores::Dict{Int, Float64}; ratio = 0.1)
+    n = length(scores)
+    n_fix = round(Int, ratio * n)
+
+    sorted = sort(collect(scores), by = p -> -p[2])  # maior impacto primeiro
+    to_fix = first(sorted, n_fix)
+
+    for (r_id, _) in to_fix
+        fix(model_vars["y_r"][r_id], 0.0, force=true)
+    end
+
+    return [r_id for (r_id, _) in to_fix]  # opcional, para desfazer depois
+end
+
+function __fix_top_k(scores::Dict{Int, Float64}; ratio=0.1)
+    n = length(scores)
+    n_fix = round(Int, ratio * n)
+    sorted = sort(collect(scores), by = p -> -p[2])
+    return [r_id for (r_id, _) in first(sorted, n_fix)]
+end
+
+function __revert_x_u_to_integral!(model_vars)
+    for var_x in values(model_vars["x"])
+        set_binary(var_x)
+    end
+
+    for var_u in values(model_vars["u"])
+        set_integer(var_u)
+    end
+end
+
+function __build_effective_trigger_map(T::TriggerArcTSP, u_vals, x_vals)
+
+	# maps triggers that effectively could affect an arc in a tour
+	# map[affected_arc] = (trigger_id, position of trigger in tour)
+	arc_trigger_map = Dict{Int, Tuple{Int, Int}}()
+
+    for (r_id, trigger) in enumerate(T.Trigger)
+		trigger_arc_id			= trigger.trigger_arc_id
+		trigger_destiny_node	= T.Arc[trigger_arc_id].v
+
+		target_arc_id			= trigger.target_arc_id
+		target_origin_node		= T.Arc[target_arc_id].u
+
+		# is a valid trigger for the current tour
+		if (haskey(x_vals, target_arc_id)
+			&& haskey(x_vals, trigger_arc_id)
+			# && x_vals[target_arc_id] >= 1.0
+			# && x_vals[trigger_arc_id] >= 1.0
+			&& u_vals[trigger_destiny_node] <= u_vals[target_origin_node])
+			trigger_candidate = (r_id, u_vals[trigger_destiny_node])
+			# if the key does not exist, we havent identified a trigger for that arc yet
+			# if the key exists, we check if the trigger is closer to the target in the tour
+			if !haskey(arc_trigger_map, target_arc_id) || trigger_candidate[2] > arc_trigger_map[target_arc_id][2]
+				arc_trigger_map[target_arc_id] = trigger_candidate
+			end
+		end
+	end
+
+	return arc_trigger_map
+end
+
+function __recompute_objective_value(T::TriggerArcTSP, effective_triggers, u_vals)
+	# reconstruct tour
+	tour_nodes = sort(collect(u_vals), by = last) |> x -> [kv[1] for kv in x]
+    tour_arcs = [(tour_nodes[i], tour_nodes[i+1]) for i in 1:length(tour_nodes)-1]
+    push!(tour_arcs, (tour_nodes[end], tour_nodes[1]))
+
+	new_obj_value = 0.0
+	for (u, v) in tour_arcs
+		arc_id = findfirst(a -> a.u == u && a.v == v, T.Arc)
+		arc_cost = T.Arc[arc_id].cost
+
+		if haskey(effective_triggers, arc_id)
+			arc_cost = T.Trigger[effective_triggers[arc_id][1]].cost
+		end
+
+		new_obj_value += arc_cost
+	end
+
+	return new_obj_value
+end
+
+function _linear_relaxation_ub(T::TriggerArcTSP, model::Model, model_vars::Dict{String,Any})
+	# relax and fix focusing on trigger variables
+	UB = Inf
+	# trigger rank per arc
+	x_star_values	= value.(model_vars["x"])
+	x_star			= Dict((arc.u, arc.v) => x_star_values[i] for (i, arc) in enumerate(T.Arc))
+
+	y_r_scores	= __compute_y_r_scores(T, x_star)
+	fixed_y_r	= __fix_bad_y_r!(model_vars, y_r_scores)
+	__revert_x_u_to_integral!(model_vars)
+	set_attribute(model, "TimeLimit", T.maxtime_ub_lp)
+	optimize!(model)
+	println("Objective value on relaxed model: $(objective_value(model))")
+
+	# optimize!(model)
+	new_u_vals	= Dict(i => round(Int, value(model_vars["u"][i])) for i in 1:T.NNodes)
+    new_x_vals	= Dict(i => round(Int, value(model_vars["x"][i])) for i in 1:T.NArcs if value(model_vars["x"][i]) >= 1.0)
+
+	effective_triggers = __build_effective_trigger_map(T, new_u_vals, new_x_vals)
+
+	new_objective_value = __recompute_objective_value(T, effective_triggers, new_u_vals)
+
+	println("Objective value post revert: $(new_objective_value)")
+	if new_objective_value < UB
+		UB = new_objective_value
+	end
+
+	return UB
+end
+
+function _linear_relaxation(T::TriggerArcTSP)
+	model, model_vars, LB	= _linear_relaxation_lb(T)
+	UB						= _linear_relaxation_ub(T, model, model_vars)
+
+	return LB, UB
+end
+
+
 function TriggerArcTSP_lb_lp(T::TriggerArcTSP)
-	StartingTime = time()  # To compute the time used by this routine.
-	T.time_lb_lp = ceil(time() - StartingTime) # To compute the time used by this routine.
+	StartingTime	= time()
+	LB, UB			= _linear_relaxation(T)
+	total_time		= ceil(time() - StartingTime)
+
+	println("Linear Relaxation LB: $(LB) | UB: $(UB) | time: $(total_time)s")
+	T.time_lb_lp	= total_time
+	T.time_ub_lp	= total_time
+	T.lb_lp			= LB
+	T.ub_lp			= UB
 end
 
 # --------------------------------------------------------------
@@ -190,7 +521,8 @@ function __compute_lag_violations(
 			i = T.Arc[a].u
 			j = T.Arc[a].v
 			if j != 1
-				violations_dict["C2"][a] = max(0, u[i] + 1 - u[j] - M * (1 - x[a]))
+				# violations_dict["C2"][a] = max(0, u[i] + 1 - u[j] - M * (1 - x[a]))
+				violations_dict["C2"][a] = u[i] + 1 - u[j] - M * (1 - x[a])
 			end
 		end
 	end
@@ -221,7 +553,8 @@ function __compute_lag_violations(
 	if active_constraints[6] == false
 		for r in 1:T.NTriggers
 			trigger = T.Trigger[r].trigger_arc_id
-			violations_dict["C6"][r] = max(0, y_r[r] - x[trigger])
+			# violations_dict["C6"][r] = max(0, y_r[r] - x[trigger])
+			violations_dict["C6"][r] = y_r[r] - x[trigger]
 		end
 	end
 
@@ -230,7 +563,8 @@ function __compute_lag_violations(
 		for r in 1:T.NTriggers
 			i = T.Arc[T.Trigger[r].trigger_arc_id].u
 			h = T.Arc[T.Trigger[r].target_arc_id].u
-			violations_dict["C7"][r] = max(0, u[i] + 1 - u[h] - M*(1 - y_r[r])) / scale
+			# violations_dict["C7"][r] = max(0, u[i] + 1 - u[h] - M*(1 - y_r[r])) / scale
+			violations_dict["C7"][r] = (u[i] + 1 - u[h] - M*(1 - y_r[r])) / scale
 		end
 	end
 
@@ -239,7 +573,8 @@ function __compute_lag_violations(
 		for r in 1:T.NTriggers
 			i = T.Arc[T.Trigger[r].trigger_arc_id].u
 			h = T.Arc[T.Trigger[r].target_arc_id].u
-			violations_dict["C8"][r] = max(0, u[h] + 1 - u[i] - M*(1 - y_hat[r])) / scale
+			# violations_dict["C8"][r] = max(0, u[h] + 1 - u[i] - M*(1 - y_hat[r])) / scale
+			violations_dict["C8"][r] = (u[h] + 1 - u[i] - M*(1 - y_hat[r])) / scale
 		end
 	end
 
@@ -248,7 +583,8 @@ function __compute_lag_violations(
 		for r in 1:T.NTriggers
 			trigger = T.Trigger[r].trigger_arc_id
 			target  = T.Trigger[r].target_arc_id
-			violations_dict["C9"][r] = max(0,
+			# violations_dict["C9"][r] = max(0,
+			violations_dict["C9"][r] = (
 				x[trigger]
 				- (1 - x[target])
 				- (1 - y[target])
@@ -265,7 +601,8 @@ function __compute_lag_violations(
 					i_r1   = T.Arc[T.Trigger[r1].trigger_arc_id].u
 					i_r2   = T.Arc[T.Trigger[r2].trigger_arc_id].u
 					a_hat2 = T.Trigger[r2].trigger_arc_id
-					violations_dict["C10"][r1,r2] = max(0,
+					# violations_dict["C10"][r1,r2] = max(0,
+					violations_dict["C10"][r1,r2] = (
 						u[i_r2]
 						- M*y_hat[r2]
 						- u[i_r1]
@@ -276,6 +613,15 @@ function __compute_lag_violations(
 			end
 		end
 	end
+
+	# vectorized_violations = vcat(vec.(values(violations_dict))...)
+	# violation_max = maximum(x -> abs(x), vectorized_violations)
+	# scaling_factor = c_max / (max(violation_max, 1e-6))
+	# println("Scaling factor: $(scaling_factor)")
+
+	# for constr in keys(violations_dict)
+	# 	violations_dict[constr] .*= scaling_factor
+	# end
 
 	return violations_dict
 end
@@ -297,17 +643,24 @@ function __update_lag_multipliers(
 
 	# I could use r1 loop at C10 to compute these guys but is it worth it?
 	for r in 1:T.NTriggers
-		lambda_dict["C6"][r] = lambda_dict["C6"][r] + alpha_k * violations_dict["C6"][r]
-		lambda_dict["C7"][r] = lambda_dict["C7"][r] + alpha_k * violations_dict["C7"][r]
-		lambda_dict["C8"][r] = lambda_dict["C8"][r] + alpha_k * violations_dict["C8"][r]
-		lambda_dict["C9"][r] = lambda_dict["C9"][r] + alpha_k * violations_dict["C9"][r]
+		# lambda_dict["C6"][r] = lambda_dict["C6"][r] + alpha_k * violations_dict["C6"][r]
+		# lambda_dict["C7"][r] = lambda_dict["C7"][r] + alpha_k * violations_dict["C7"][r]
+		# lambda_dict["C8"][r] = lambda_dict["C8"][r] + alpha_k * violations_dict["C8"][r]
+		# lambda_dict["C9"][r] = lambda_dict["C9"][r] + alpha_k * violations_dict["C9"][r]
+
+		lambda_dict["C6"][r] = max(0, lambda_dict["C6"][r] + alpha_k * violations_dict["C6"][r])
+		lambda_dict["C7"][r] = max(0, lambda_dict["C7"][r] + alpha_k * violations_dict["C7"][r])
+		lambda_dict["C8"][r] = max(0, lambda_dict["C8"][r] + alpha_k * violations_dict["C8"][r])
+		lambda_dict["C9"][r] = max(0, lambda_dict["C9"][r] + alpha_k * violations_dict["C9"][r])
+		
 	end
 
 	# maybe saving some time by never updating multipliers for unnecessary pairs
 	for r1 in 1:T.NTriggers
 		for r2 in r1+1:T.NTriggers
 			if T.Trigger[r1].target_arc_id == T.Trigger[r2].target_arc_id
-				lambda_dict["C10"][r1, r2] = lambda_dict["C10"][r1, r2] + alpha_k * violations_dict["C10"][r1, r2]
+				# lambda_dict["C10"][r1, r2] = lambda_dict["C10"][r1, r2] + alpha_k * violations_dict["C10"][r1, r2]
+				lambda_dict["C10"][r1, r2] = max(0, lambda_dict["C10"][r1, r2] + alpha_k * violations_dict["C10"][r1, r2])
 			end
 		end
 	end
@@ -434,10 +787,10 @@ function _rlx_lag(T)
 		true,	# C4
 		true,	# C5
 		false,	# C6
-		true, #false,	# C7
-		true, #false,	# C8
+		true,	# C7
+		true,	# C8
 		true,	# C9
-		true, #false	# C10
+		true,	# C10
 	]
 	# Build the basic ILP model without the dualized constraints.
 	model, model_vars = _build_ilp(T, active_constraints)
@@ -471,6 +824,8 @@ function _rlx_lag(T)
 
 	MAX_ITERS = 20
 	max_time_per_iteration = floor(T.maxtime_lb_rlxlag / MAX_ITERS)
+	iterations_without_lb_improvement = 0
+	iterations_without_ub_improvement = 0
 	set_attribute(model, "TimeLimit", max_time_per_iteration)
 	set_silent(model)
 
@@ -483,10 +838,14 @@ function _rlx_lag(T)
 		z_k = objective_value(model)
 		push!(z_k_values, z_k)
 		if z_k > LB
+			iterations_without_lb_improvement = 0
 			LB = z_k
 			best_lambda = deepcopy(lambda_dict)
 			best_vars = deepcopy(model_vars)
 			println("Improved LB at iteration[$(k)]: $LB")
+		else
+			iterations_without_lb_improvement += 1
+			println("LB not improved: $(z_k)")
 		end
 
 		current_vars = Dict{String, Any}(
@@ -505,6 +864,7 @@ function _rlx_lag(T)
 		)
 
 		v_norm = norm(vcat([vec(v) for v in values(violations_dict)]), 2)
+
 		if v_norm <= 1e-3
 			println("Stopping criteria met at iteration $(k): violations are small enough.")
 			break
@@ -513,8 +873,17 @@ function _rlx_lag(T)
 		# Heuristic upper bound
 		current_UB = _rlx_lag_ub(T, current_vars)
 		if current_UB < UB
+			iterations_without_ub_improvement = 0
 			UB = current_UB
 			println("Improved UB at iteration[$(k)]: $UB")
+		else
+			iterations_without_ub_improvement += 1
+			println("UB not improved: $(current_UB)")
+		end
+
+		if iterations_without_lb_improvement > 0.3*MAX_ITERS && iterations_without_ub_improvement > 0.3*MAX_ITERS
+			println("No improvements for over $(0.3*MAX_ITERS) iterations. Stopping LR.")
+			break
 		end
 
 		use_polyak = true
@@ -536,22 +905,22 @@ function _rlx_lag(T)
 		)
 	end
 
-	# TODO(me): fix times
-	UB_time = 0
-	LB_time = 0
-
-	return UB, LB, UB_time, LB_time
+	return UB, LB
 end
 
 function TriggerArcTSP_lb_rlxlag(T::TriggerArcTSP)
 	# This method actually calls both UB and LB methods as they're complementary.
-	UB, LB, UB_time, LB_time = _rlx_lag(T)
-	T.time_lb_rlxlag = LB_time
-	T.time_ub_rlxlag = UB_time
+	StartingTime = time()  # To compute the time used by this routine.
+
+	UB, LB = _rlx_lag(T)
+	rlx_lag_time = ceil(time() - StartingTime) # To compute the time used by this routine.
+	println("Lagrangean relaxation LB: $(LB) | UB: $(UB) | time $(rlx_lag_time)s")
+
+
+	T.time_lb_rlxlag = rlx_lag_time
+	T.time_ub_rlxlag = rlx_lag_time
 	T.ub_rlxlag = UB
 	T.lb_rlxlag = LB
-	
-	println("Lagrangean relaxation LB: $(LB) | UB: $(UB)")
 end
 
 # --------------------------------------------------------------
@@ -567,14 +936,8 @@ function TriggerArcTSP_lb_colgen(T::TriggerArcTSP)
 end
 # --------------------------------------------------------------
 function TriggerArcTSP_ub_lp(T::TriggerArcTSP)
-	# StartingTime = time()  # To compute the time used by this routine.
-
-	# Fill your routine here
-
-
-
-
-	# T.time_ub_lp = ceil(time() - StartingTime) # To compute the time used by this routine.
+	# disabled as a workaround (run both UB and LB as one single lin. rlx.)
+	return
 end
 # --------------------------------------------------------------
 function TriggerArcTSP_ub_rlxlag(T::TriggerArcTSP)

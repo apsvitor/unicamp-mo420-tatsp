@@ -15,157 +15,9 @@ using Infiltrator
 using JuMP
 using Gurobi
 using LinearAlgebra
+using StatsBase
 
 # --------------------------------------------------------------
-# function __validate_tour(tour_edges::Vector{Tuple{Int,Int}}, nnodes::Int)
-#     # primordial condition: tour length == nnodes
-# 	if length(tour_edges) != nnodes
-#         return false
-#     end
-
-#     next = Dict{Int,Int}()
-#     visited = Set{Int}()
-
-#     for (i, j) in tour_edges
-#         if haskey(next, i)
-#             return false
-#         end
-#         next[i] = j
-#     end
-
-#     current = first(keys(next))
-#     for _ in 1:nnodes
-# 		# check for subcycles
-#         if current in visited
-#             return false
-#         end
-#         push!(visited, current)
-#         current = get(next, current, nothing)
-#         # unconnected
-# 		if current === nothing
-#             return false
-#         end
-#     end
-
-#     # guarantee if the last node cycles back to the first
-#     return current == first(keys(next)) && length(visited) == nnodes
-# end
-
-# function __build_greedy_tour(T::TriggerArcTSP, x_star::Dict{Tuple{Int, Int}, Float64})
-# 	nnodes = T.NNodes
-# 	sorted_arcs = sort(collect(keys(x_star)), by = a -> -x_star[a])
-
-# 	in_degree	= Dict(i => 0 for i in 1:nnodes)
-# 	out_degree	= Dict(i => 0 for i in 1:nnodes)
-# 	parent		= Dict(i => i for i in 1:nnodes)
-# 	edges		= Tuple{Int, Int}[]
-
-# 	# basic union-find
-# 	function __find(u)
-# 		while parent[u] != u
-# 			parent[u] = parent[parent[u]]
-# 			u = parent[u]
-# 		end
-# 		return u
-# 	end
-
-# 	function __union(u, v)
-# 		pu, pv = __find(u), __find(v)
-# 		if pu == pv
-# 			return false
-# 		end
-
-# 		parent[pu] = pv
-# 		return true
-# 	end
-
-# 	first_node = 1
-
-# 	for (i, j) in sorted_arcs
-# 		if i == j || out_degree[i] == 1 || in_degree[j] == 1
-# 			continue
-# 		end
-
-# 		if j == first_node
-# 			continue
-# 		end
-
-# 		if length(edges) == nnodes - 1
-# 			break
-# 		end
-
-# 		if __union(i, j)
-# 			push!(edges, (i, j))
-# 			out_degree[i]	+= 1
-# 			in_degree[j]	+= 1
-# 		end
-# 	end
-# 	possible_last_nodes = [
-# 		i for i in 1:nnodes
-# 			if out_degree[i] == 0
-# 				&& i != first_node 
-# 				&& (i, first_node) in keys(x_star)
-# 	]
-# 	if !isempty(possible_last_nodes)
-# 		# picking out the node with biggest x BECAUSE REASONS. 
-# 		last_node = argmax(i -> x_star[(i, first_node)], possible_last_nodes)
-#     	push!(edges, (last_node, first_node))
-#     end
-
-# 	return edges
-# end
-
-# function __trigger_impacts_by_arc(T::TriggerArcTSP)
-#     arc_triggers = Dict{Int, Vector{Tuple{Int, Float64}}}()
-
-#     for (arc_id, arc) in enumerate(T.Arc)
-#         R_a = findall(tr -> tr.target_arc_id == arc_id, T.Trigger)
-
-#         impacts = [
-#             (trigger_id, T.Trigger[trigger_id].cost - arc.cost)
-#             for trigger_id in R_a
-#         ]
-
-#         arc_triggers[arc_id] = sort(impacts, by = t -> t[2])
-#     end
-
-#     return arc_triggers
-# end
-
-# function __trigger_scores(T::TriggerArcTSP, x_star::Dict{Tuple{Int,Int}, Float64})
-#     trigger_scores = Dict{Int, Float64}()
-
-#     for (trigger_id, trigger) in enumerate(T.Trigger)
-#         affected_arc_id = trigger.target_arc_id
-#         arc = T.Arc[affected_arc_id]
-#         arc_key = (arc.u, arc.v)
-
-#         # Se esse arco está em x_star
-#         if haskey(x_star, arc_key)
-#             delta = trigger.cost - arc.cost
-#             trigger_scores[trigger_id] = x_star[arc_key] * delta
-#         else
-#             trigger_scores[trigger_id] = 0.0  # ou penalizar
-#         end
-#     end
-
-#     return trigger_scores
-# end
-
-# function __fix_bad_triggers!(model_vars, trigger_scores; pct_to_fix = 0.10)
-#     n = length(trigger_scores)
-#     n_fix = round(Int, pct_to_fix * n)
-
-#     sorted = sort(collect(trigger_scores), by = p -> -p[2])  # maiores impactos primeiro
-#     to_fix = first(sorted, n_fix)
-
-#     for (trigger_id, _) in to_fix
-#         fix(model_vars["y"][trigger_id], 0.0)
-#     end
-
-#     return [trigger_id for (trigger_id, _) in to_fix]  
-# end
-
 function _linear_relaxation_lb(T::TriggerArcTSP)
 	model, model_vars = _build_ilp(T)
 
@@ -194,7 +46,8 @@ function _linear_relaxation_lb(T::TriggerArcTSP)
 		set_lower_bound(model_vars["u"][var_u], 1.0)
 		set_upper_bound(model_vars["u"][var_u], T.NNodes)
 	end
-
+	
+	set_silent(model)
 	optimize!(model)
 
 	LB = objective_value(model)
@@ -224,14 +77,14 @@ function __fix_bad_y_r!(model_vars, scores::Dict{Int, Float64}; ratio = 0.1)
     n = length(scores)
     n_fix = round(Int, ratio * n)
 
-    sorted = sort(collect(scores), by = p -> -p[2])  # maior impacto primeiro
+    sorted = sort(collect(scores), by = p -> -p[2])
     to_fix = first(sorted, n_fix)
 
     for (r_id, _) in to_fix
         fix(model_vars["y_r"][r_id], 0.0, force=true)
     end
 
-    return [r_id for (r_id, _) in to_fix]  # opcional, para desfazer depois
+    return [r_id for (r_id, _) in to_fix]
 end
 
 function __fix_top_k(scores::Dict{Int, Float64}; ratio=0.1)
@@ -239,6 +92,115 @@ function __fix_top_k(scores::Dict{Int, Float64}; ratio=0.1)
     n_fix = round(Int, ratio * n)
     sorted = sort(collect(scores), by = p -> -p[2])
     return [r_id for (r_id, _) in first(sorted, n_fix)]
+end
+
+function __fix_random_weighted(scores::Dict{Int, Float64}; ratio=0.1)
+    n_fix = round(Int, ratio * length(scores))
+    r_ids_all = collect(keys(scores))
+    weights_all = [max(scores[r], 0.0) for r in r_ids_all]
+
+    filtered = [(r, w) for (r, w) in zip(r_ids_all, weights_all) if w > 0.0]
+    r_ids = [r for (r, _) in filtered]
+    weights = [w for (_, w) in filtered]
+
+    if length(r_ids) < n_fix
+        return rand(collect(keys(scores)), n_fix)
+    else
+        return sample(r_ids, Weights(weights), n_fix; replace=false)
+    end
+end
+
+function __fix_by_threshold(scores::Dict{Int, Float64}; threshold=1.0)
+    return [r_id for (r_id, score) in scores if score >= threshold]
+end
+
+function __select_fix_strategy(strategy::String, scores::Dict{Int, Float64}; ratio=0.2)
+    if strategy == "topk"
+        return __fix_top_k(scores, ratio=ratio)
+    elseif strategy == "weighted"
+        return __fix_random_weighted(scores, ratio=ratio)
+    elseif strategy == "threshold"
+        return __fix_by_threshold(scores, threshold=ratio)
+    else
+        error("Unknown strategy: $strategy")
+    end
+end
+
+function __solve_relaxed_model_with_fixed_y_r(T::TriggerArcTSP, fixed_y_r::Vector{Int}, model, model_vars)
+    for var in values(model_vars["y_r"])
+        if is_fixed(var)
+			unfix(var)
+    	end
+	end
+
+	for r in fixed_y_r
+        fix(model_vars["y_r"][r], 0.0, force=true)
+    end
+
+	optimize!(model)
+
+	status = _optimization_status_check(model)
+
+    u_vals = Dict(i => round(Int, value(model_vars["u"][i])) for i in 1:T.NNodes)
+    x_vals = Dict(i => round(Int, value(model_vars["x"][i])) for i in 1:T.NArcs if value(model_vars["x"][i]) >= 1.0)
+    trigger_map = __build_effective_trigger_map(T, u_vals, x_vals)
+    obj = __recompute_objective_value(T, trigger_map, u_vals)
+
+    return obj, model_vars, status
+end
+
+
+function _simulated_annealing_trigger_fixation(T::TriggerArcTSP;
+    initial_temp::Float64 = 100.0,
+    final_temp::Float64 = 1.0,
+    alpha::Float64 = 0.95,
+    max_iter::Int = 10,
+    ratio::Float64 = 0.2,
+    strategies::Vector{String} = ["topk", "threshold", "weighted"])
+
+    model, model_vars, LB = _linear_relaxation_lb(T)
+    x_star = Dict((arc.u, arc.v) => value(model_vars["x"][i]) for (i, arc) in enumerate(T.Arc))
+
+    scores = __compute_y_r_scores(T, x_star)
+    best_fix = Vector{Int}()
+
+    __revert_x_u_to_integral!(model_vars)
+	set_silent(model)
+    set_attribute(model, "TimeLimit", Int(T.maxtime_ub_lp/max_iter))
+
+	UB = Inf
+    current_obj = Inf
+    current_fix = best_fix
+
+    temp = initial_temp
+
+    for iter in 1:max_iter
+        strategy = rand(strategies)
+        new_fix = __select_fix_strategy(strategy, scores; ratio=ratio)
+        new_obj, _, status = __solve_relaxed_model_with_fixed_y_r(T, new_fix, model, model_vars)
+		if status == MOI.INFEASIBLE
+			continue
+		end
+        delta = new_obj - current_obj
+        accept_solution = delta < 0 || rand() < exp(-delta / temp)
+
+        if accept_solution
+            current_obj = new_obj
+            current_fix = new_fix
+            if new_obj < UB
+                UB = new_obj
+                best_fix = new_fix
+            end
+        end
+
+        println("Iter $iter | Temp = $(round(temp, digits=2)) | Strategy = $strategy | Obj = $(round(current_obj, digits=2)) | Best = $(round(UB, digits=2))")
+        temp *= alpha
+        if temp < final_temp
+            break
+        end
+    end
+
+    return LB, UB
 end
 
 function __revert_x_u_to_integral!(model_vars)
@@ -267,8 +229,6 @@ function __build_effective_trigger_map(T::TriggerArcTSP, u_vals, x_vals)
 		# is a valid trigger for the current tour
 		if (haskey(x_vals, target_arc_id)
 			&& haskey(x_vals, trigger_arc_id)
-			# && x_vals[target_arc_id] >= 1.0
-			# && x_vals[trigger_arc_id] >= 1.0
 			&& u_vals[trigger_destiny_node] <= u_vals[target_origin_node])
 			trigger_candidate = (r_id, u_vals[trigger_destiny_node])
 			# if the key does not exist, we havent identified a trigger for that arc yet
@@ -303,40 +263,8 @@ function __recompute_objective_value(T::TriggerArcTSP, effective_triggers, u_val
 	return new_obj_value
 end
 
-function _linear_relaxation_ub(T::TriggerArcTSP, model::Model, model_vars::Dict{String,Any})
-	# relax and fix focusing on trigger variables
-	UB = Inf
-	# trigger rank per arc
-	x_star_values	= value.(model_vars["x"])
-	x_star			= Dict((arc.u, arc.v) => x_star_values[i] for (i, arc) in enumerate(T.Arc))
-
-	y_r_scores	= __compute_y_r_scores(T, x_star)
-	fixed_y_r	= __fix_bad_y_r!(model_vars, y_r_scores)
-	__revert_x_u_to_integral!(model_vars)
-	set_attribute(model, "TimeLimit", T.maxtime_ub_lp)
-	optimize!(model)
-	println("Objective value on relaxed model: $(objective_value(model))")
-
-	# optimize!(model)
-	new_u_vals	= Dict(i => round(Int, value(model_vars["u"][i])) for i in 1:T.NNodes)
-    new_x_vals	= Dict(i => round(Int, value(model_vars["x"][i])) for i in 1:T.NArcs if value(model_vars["x"][i]) >= 1.0)
-
-	effective_triggers = __build_effective_trigger_map(T, new_u_vals, new_x_vals)
-
-	new_objective_value = __recompute_objective_value(T, effective_triggers, new_u_vals)
-
-	println("Objective value post revert: $(new_objective_value)")
-	if new_objective_value < UB
-		UB = new_objective_value
-	end
-
-	return UB
-end
-
 function _linear_relaxation(T::TriggerArcTSP)
-	model, model_vars, LB	= _linear_relaxation_lb(T)
-	UB						= _linear_relaxation_ub(T, model, model_vars)
-
+	LB, UB = _simulated_annealing_trigger_fixation(T)
 	return LB, UB
 end
 
@@ -764,6 +692,7 @@ function _rlx_lag_lb(T, active_constraints, model, model_vars, lambda_dict)
 		model_vars,
 		lambda_dict
 	)
+	set_silent(model)
 
 	optimize!(model)
 
@@ -961,6 +890,7 @@ function TriggerArcTSP_ilp(T::TriggerArcTSP)
 
 	model, model_vars = _build_ilp(T)
 	set_attribute(model, "TimeLimit", T.maxtime_ilp)
+	set_silent(model)
 
 
 	optimize!(model)
@@ -1312,13 +1242,9 @@ function _optimization_status_check(model::Model)
 			println("It was not possible to obtain optimal solution, due to time limit.")
 			return MOI.TIME_LIMIT
 		else
-			compute_conflict!(model)
-			if get_attribute(model, MOI.ConflictStatus()) == MOI.CONFLICT_FOUND
-				iis_model, _ = copy_conflict(model)
-				print(iis_model)
-			end
 			println(termination_status(model))
-			error("It was not possible to obtain optimal solution.")
+			println("It was not possible to obtain optimal solution.")
+			return MOI.INFEASIBLE
 		end
 	else
 		println("Model solved successfully with status: ", termination_status(model))

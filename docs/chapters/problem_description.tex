@@ -1,0 +1,47 @@
+\chapter{Descrição do Problema}
+\label{chap:problem_description}
+
+\noindent No trabalho de \textcite{Carmine2024} o TATSP foi descrito como sendo uma variante do TSP original, sendo descrito, basicamente, como um problema para encontrar um ciclo Hamiltoniano de custo mínimo em um grafo direcionado onde existem relacionamentos entre arcos. Esses relacionamentos são responsáveis por dinamizar os custos de arestas no grafo. De agora em diante referenciamos estes relacionamentos utilizando as expressões de "gatilho" ou "\emph{trigger}" para arcos (ou arestas) que ativam alteração de custo para arestas "alvo" ou "\emph{target}". O modelo matemático proposto por \textcite{Carmine2024} servirá como base de referência para nosso modelo de programação linear inteira mista.
+
+No trabalho de \textcite{Carmine2024} é fornecido um exemplo explicativo para representar o impacto da existência de relacionamentos entre as arestas do grafo. Além disso, na competição \emph{MESS2024} \mytodo{adicionar referência aos slides da competição} também foram apresentados exemplos de casos de uso reais onde o TATSP é aplicável, ilustrando um depósito de estantes móveis, onde os arcos simulam as movimentações das estantes e os relacionamentos exploram como determinadas movimentações podem afetar os custos de movimentação de estantes no futuro.
+
+Formalmente, em um grafo direcionado (e não necessariamente completo) $G = (N, A)$, onde $N$ é o conjunto de vértices ou nós e $A$ é o conjunto de arcos ou arestas direcionados. O objetivo é determinar um ciclo Hamiltoniano de custo mínimo considerando a existência de relacionamentos entre as arestas definidos como $r = (t, a)$, significando que o custo da aresta $a$ será alterado caso a aresta $t$ seja escolhida para o caminho e esteja \textbf{antes} de $a$ na ordem de visitação.
+
+Seja $c(a) \in R^{+} \forall a \in A$ o custo de passar pelo arco $a$. Para cada arco $a = (h,k)$ existe um conjunto de relacionamentos $R_a = \{(a_1, a) | a_1 \in A\}$ representando todos os relacionamentos que afetam o arco $a$. Além disso, define-se $c(r) \in R^{+} \forall r \in R_a$ como os novos custos para o arco $a$ caso a relação $r$ esteja \textbf{ativa}. Além disso, definimos $R$ como sendo o conjunto de todos os relacionamentos (para todos os arcos) da instância. Considerando essas entradas, utilizamos, integralmente, o modelo matemático de \textcite{Carmine2024}, descrito a seguir.
+
+São quatro conjuntos de variáveis de decisão binárias e um conjunto de variáveis inteiras auxiliar, sendo definidos como:
+
+\begin{itemize}
+    \item \textbf{$x_a$}: binárias com valor $1$ quando o arco $a$ está presente no caminho, e $0$ caso contrário. Estas variáveis indicam quais arcos estarão no caminho construído.
+    \item \textbf{$y_a$}: binárias com valor $1$ quando não há relacionamento ativo em $R_a$ e $x_a=1$, e $0$ caso contrário.
+    \item \textbf{$y_r$}: binárias com valor $1$ quando o relacionamento $r$ está ativo, e $0$ caso contrário.
+    \item \textbf{$y^{hat}_{r}$}: binárias com valor $1$ quando, para uma relação $r = (a_1, a)$, o arco $a$ precede o arco $a_1$ no caminho, e $0$ caso contrário.
+    \item \textbf{$u$}: inteiras utilizadas como auxiliares para definir a ordem de visitação de cada nó do grafo. Esta variável é importante para as restrições que evitam a existência de subciclos na solução.
+\end{itemize}
+
+Assim, a formulação completa segue:
+
+\vspace{-2em}
+\begin{align}
+    \text{(TATSP)} \quad & \min Z = \sum_{r \in R} c(r)y_r + \sum_{a \in A} c(a)y_a \label{eq:funcao_objetivo} \\[4pt]
+    \text{sujeito a} \notag \\[2pt]
+    & \sum_{(i,j) \in A} x_{ij} = |N| & \quad & \label{eq:C1} \\[2pt]
+    & u_i + 1 \leq u_j + M(1 - x_{ij}) & \quad & \forall (i,j) \in A/j \neq 0 \label{eq:C2}  \\[2pt]
+    & \sum_{(i,j) \in A} x_{ij} = 1 & \quad & \forall j \in N \label{eq:C3} \\[2pt]
+    & \sum_{(i,j) \in A} x_{ij} = 1 & \quad & \forall i \in N \label{eq:C4} \\[2pt]
+    & y_a + \sum_{r \in R_a} y_r = x_{ij} & \quad & \forall a = (i,j) \in A \label{eq:C5} \\[2pt]
+    & y_r \leq x_{ij} & \quad & \forall r=((i,j), (h,k)) \in R \label{eq:C6} \\[2pt]
+    & u_i + 1 \leq u_h + M(1 - y_r) & \quad & \forall r=((i,j), (h,k)) \in R \label{eq:C7} \\[2pt]
+    & u_h + 1 \leq u_i + M(1 - \hat{y}_{r}) & \quad & \forall r=((i,j), (h,k)) \in R  \label{eq:C8} \\[2pt]
+    & x_{ij} \leq (1 - x_{hk}) + (1 - y_{hk}) + \hat{y}_{r} & \quad & \forall r=((i,j), (h,k)) \in R \label{eq:C9} \\[2pt]
+    & u_{\hat{i}} - M(\hat{y}_{r2}) \leq u_i + M(2 - y_{r1} - x_{\hat{i}\hat{j}}) - 1 & \quad &
+    \begin{aligned}[t]
+        & \forall r1=((i,j), (h,k)) \in R, \\
+        & \forall r2=((\hat{i},\hat{j}), (h,k)) \in R
+    \end{aligned} \label{eq:C10} \\[2pt]
+    & x_{ij}, y_a \in \{0, 1\} & \quad & \forall a=(i,j) \in A \label{eq:C11} \\[2pt]
+    & y_r, \hat{y}_{r} \in \{0,1\} & \quad & \forall r \in R \label{eq:C12} \\[2pt]
+    & u_i \in \{0,|N|\} & \quad & \forall i \in N \label{eq:C13}
+\end{align}
+
+Começando pela \cref{eq:funcao_objetivo}, temos o objetivo de minimizar o custo do caminho. Cada um dos termos indica se o custo de cada arco do caminho será o custo base (original) ou o custo modificado por um relacionamento. A \cref{eq:C1}, referida no código como restrição $C1$, é responsável por garantir que o número de arcos do caminho seja igual à quantidade de nós da entrada, sendo uma condição mínima para o ciclo Hamiltoniano. A \cref{eq:C2} controla a posição dos vértices, servindo de auxílio para conferir a ordem de visitação do caminho, além de garantir que não existam subciclos. Já as \crefrange{eq:C3}{eq:C4} garantem que cada nó tenha apenas um arco de entrada e outro de saída, além de também tornarem a \cref{eq:C1} redundante e desnecessária ao modelo. As restrições da \cref{eq:C5} são responsáveis por garantir que somente um custo pode ser associado a um arco (seja o modificado, o base ou zero). Em seguida, a \cref{eq:C6} produz restrições que requerem que a relação $r=((i,j), (h,k))$ esteja ativa se o caminho passar pelo arco gatilho $(i,j)$. A \cref{eq:C7} garantem o controle de precedência entre os gatilhos e alvos, ou seja, se o arco gatilho $(i,j)$ não precede o alvo $(h,k)$, então $y_r = 0$. Já a \cref{eq:C8} visa garantir que, se o arco $(h,k)$ não precede $(i,j)$ na solução, então $\hat{y}_r = 0$. A restrição descrita pela \cref{eq:C9} trabalha com diferentes condições para cada $r=((i,j), (h,k)) \in R$, onde o arco gatilho $(i,j)$ só pode ser usado se o arco $(h,k)$ não é usado; ou se a variável $y_{hk}$ associada ao custo base do arco $(h,k)$ não está ativa; ou se ambos os arcos $(i,j)$ e $(h,k)$ são usados na solução, $(i,j)$ aparece após $(h,k)$. E, por fim, o conjunto de restrições da \cref{eq:C10} define uma relação de precedência entre os relacionamentos, garantindo que um arco alvo $(h,k)$ tenha seu custo alterado pelo arco gatilho mais recente (mas ainda anterior a ele). As restrições dadas pelas \crefrange{eq:C11}{eq:C13} indicam os tipos das variáveis utilizadas.

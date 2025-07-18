@@ -1,0 +1,151 @@
+% Document Structure and Formatting
+\usepackage[a4paper, margin=1in]{geometry} % Set paper size and margins
+\usepackage{setspace}  % Line spacing
+% \onehalfspacing        % Set line spacing to 1.5 (recommended for theses)
+\doublespacing
+\usepackage{indentfirst} % Indent the first paragraph of each section
+\usepackage{titlesec}  % Customize section headings
+% \titlespacing*{\chapter}{0pt}{0pt}{10pt} % Removes line break
+% \titleformat{\chapter}[hang]{\normalfont\huge\bfseries}{\thechapter}{1em}{} % Title format
+\usepackage{ragged2e}  % Enables text justification
+% \usepackage[colorinlistoftodos]{todonotes}
+\usepackage{amssymb}
+\usepackage{pifont}
+
+% Mycrotype allows for character protusion ox XeLaTeX.
+\usepackage[stretch=20]{microtype}
+% It has more features, but those are only supported on other compilers
+
+\usepackage{geometry} % Required for adjusting page dimensions and margins
+\geometry{
+	paper=a4paper, % Paper size
+	top=2.5cm, % Top margin
+	bottom=3cm, % Bottom margin
+	left=2.5cm, % Left margin
+	right=2.5cm, % Right margin
+	headheight=14pt, % Header height
+	footskip=1.5cm, % Space from the bottom margin to the baseline of the footer
+	headsep=1.2cm, % Space from the top margin to the baseline of the header
+	% showframe, % Uncomment to show how the type block is set on the page
+}
+
+\usepackage{xargs}  % Use more than one optional parameter in a new commands
+\usepackage[
+	backgroundcolor=white,
+	bordercolor=red, % try white!
+	linecolor=red,
+	figcolor=white,
+	figwidth=.8\textwidth,
+	tickmarkheight=.8em,
+	textwidth=20mm,
+	obeyFinal
+]{todonotes}
+\setlength{\marginparwidth}{20mm}
+
+% Usage: \mytodo{something to go on the margin}
+\newcommandx{\mytodo}[2][1=]{\todo[size=tiny,#1]{\begin{spacing}{0.5}#2\end{spacing}}}
+\newcommandx{\prof}[2][1=]{\todo[linecolor=gray,bordercolor=gray,size=tiny,#1]{\begin{spacing}{0.5}#2\end{spacing}}}
+\newcommandx{\duvida}[2][1=]{\todo[linecolor=blue,bordercolor=blue,size=tiny,#1]{\begin{spacing}{0.5}#2\end{spacing}}}
+% Usage:
+% \todoin{
+%   Inline text much as an env.
+% }
+\newcommand\todoin[2][]{\vspace{1em} \todo[inline,noprepend,caption={} #1]{#2}}
+
+
+% Language and Fonts
+\usepackage[T1]{fontenc}   % Better font encoding
+\usepackage[utf8]{inputenc} % Allow UTF-8 characters (e.g., accents)
+% \usepackage{lmodern}       % Modern font
+% \usepackage{microtype}     % Improves text spacing and justification
+\usepackage[brazil]{babel} % ou [portuguese]
+
+\newcount\XeTeXtracingfonts % Remove some debug info chatter
+
+%% XCharter
+% \usepackage[scale=0.96]{XCharter} % Use the XCharter text font
+
+%% Libertine
+\usepackage{libertine}
+% \usepackage{libertinust1math}
+% \usepackage[libertine]{newtxmath} % Set the math font
+
+%% Libertinus (more modern fork of libertine)
+% \usepackage{libertinus}
+
+%% Fix DOI font
+% \renewcommand\UrlFont{\rmfamily}
+
+%% Other math font
+% \usepackage[bitstream-charter]{mathdesign}
+
+%% TextTT font
+\usepackage[scaled=1.05,proportional,lightcondensed]{zlmtt}
+
+
+% Images and Graphics
+\usepackage{graphicx}  % Include images
+\usepackage{float}     % Control image positioning
+\usepackage{subcaption} % Subfigures
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows}
+
+% Tables
+\usepackage{booktabs}   % Professional-looking tables
+\usepackage{longtable}  % Multi-page tables
+\usepackage{array}      % Custom column formatting
+\usepackage{multirow}
+
+% Math symbols
+\usepackage{amsmath, amssymb, amsthm}  % Mathematical symbols & environments
+\usepackage{mathtools}  % Extended math features
+\allowdisplaybreaks  
+% \usepackage{mathrsfs}
+
+% Lists and References
+\usepackage{enumitem}  % Customizable lists
+\usepackage{hyperref}  % Clickable links
+\usepackage[nameinlink,noabbrev]{cleveref}
+% Tradução dos nomes dos ambientes
+\crefname{equation}{Equação}{Equações}
+\Crefname{equation}{Equação}{Equações}
+\crefname{chapter}{Seção}{Seções}
+\Crefname{chapter}{Seção}{Seções}
+
+% Forçar conjunções em português
+\makeatletter
+\def\creflastconjunction{ e~}
+\def\crefmiddleconjunction{,~}
+\def\crefrangeconjunction{--}
+\makeatother
+
+% Bibliography
+\usepackage[
+	backend=biber,
+	style=numeric,
+	sorting=none,
+	maxnames=99,
+	minnames=1,
+	maxcitenames=2,    % mostra no máximo 2 autores na citação
+	mincitenames=1     % usa "et al." a partir de 3 autores
+]{biblatex}
+\addbibresource{references.bib}
+
+
+% Custom commands
+\newcommand{\R}{\mathbb{R}}  % Example: shorthand for real numbers
+\renewcommand{\thetable}{\arabic{table}} % Continuous enumeration for tables
+\renewcommand{\thefigure}{\arabic{figure}} % Continuous enumeration for figures
+
+\makeatletter
+\renewcommand{\theequation}{\arabic{equation}}
+\makeatother
+
+\usepackage{chngcntr}
+\counterwithout{equation}{chapter} % já está usando
+\counterwithout{figure}{chapter}   % mantém contagem contínua de figuras
+\counterwithout{table}{chapter}    % mantém contagem contínua de tabelas
+
+% Comando para comentar inline
+\newcommand{\comentario}[1]{}
+

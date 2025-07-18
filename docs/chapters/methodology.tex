@@ -1,0 +1,42 @@
+\chapter{Métodos}
+\label{chap:methodology}
+
+\noindent Nesta seção trataremos sobre as abordagens utilizadas no desenvolvimento do trabalho. Foram feitas implementações para três opções de ataque ao TATSP: Programação Linear Inteira (ILP), Relaxação Lagrangiana (RL) e uma metaheurística \emph{Simulated Annealing} baseada na relaxação linear (SA).
+
+\section{Programação Linear Inteira -- ILP}
+\noindent A primeira abordagem a ser codificada foi a de programação linear inteira, utilizando o modelo matemático base \cite{Carmine2025} e resolvendo o problema com o \emph{solver} comercial Gurobi. A ideia principal foi de tentar alcançar soluções exatas para as instâncias do problema. Matematicamente, o modelo é suficiente para produzir soluções ótimas, porém, a realidade da execução é que a medida em que as instâncias crescem, a complexidade computacional associada ao problema também cresce, principalmente em problemas de natureza combinatória \cite{Wolsey2020}.
+
+Utilizando a linguagem de programação Julia e os pacotes JuMP, Gurobi, dentre outros utilitários, foi codificada uma solução baseada no modelo matemático TATSP, porém adicionando uma restrição para garantir que a primeira posição do caminho fosse ocupada pelo vértice $1$ (1-indexado) que, em termos práticos, seria o vértice que representa o "depósito". No código foi chamada de "C0" e é da forma $u[1] = 1$.
+
+\section{Relaxação Lagrangiana -- RL}
+\noindent Percebendo a dificuldade de convergir para uma solução, a segunda abordagem utiliza a Relaxação Lagrangiana como base para produzir limitantes superiores e inferiores. A ideia por trás disso é produzir limitantes de maneira iterativa para tentar reduzir o \emph{gap} aproximando-se ao valor ótimo. O limitante inferior, chamado de \emph{lower bound}, vem de uma solução produzida após dualizar restrições consideradas problemáticas (geralmente restrições que estendem o modelo e o tornam mais complexo, por exemplo). Basicamente essas restrições passam a ser termos de penalização na função objetivo e seus pesos são dados por multiplicadores de Lagrange. Em seguida, com essa solução (não necessariamente viável), pode-se utilizar diferentes técnicas para produzir um limitante superior (\emph{upper bound}), que indica uma solução viável para o problema original mas que não necessariamente é ótima.
+
+Para o TATSP, foi codificada uma versão que se aproveita do ILP e usa alguns artifícios para modularizar a dualização de restrições. A ideia por trás disso foi ser capaz de explorar quais restrições poderiam beneficiar a relaxação e também a viabilização para a construção de um \emph{upper bound}. A implementação foi feita baseada no material de aula e no livro de \textcite{Bertsimas1998}.
+
+Para o TATSP, dualizar as restrições $C6 - C10$ (\crefrange{eq:C6}{eq:C10}), reduz o problema, praticamente, a um TSP. Mesmo que ainda seja um problema NP-Difícil, para chamadas iterativas ao \emph{solver}, isso já representa uma redução de complexidade. Além disso, ao dualizar as restrições relacionadas somente aos gatilhos, pode-se garantir que o \emph{Gurobi} irá produzir caminhos viáveis, sendo assim, para construir um \emph{upper bound} basta, após a otimização, recomputar os custos reais dos arcos a partir do caminho feito. Porém, é importante reconhecer que para instâncias maiores, resolver o TSP por si só já é muito desafiador.
+
+A cada iteração é computada a violação de cada restrição dualizada e são atualizados os multiplicadores de Lagrange para ela. Além disso, a cada iteração é recalculado o passo utilizando o valor da função objetivo com o melhor \emph{upper bound} encontrado até o momento (\emph{Polyak}). Isso é importante para ajudar na convergência do método do subgradiente.
+
+No capítulo de experimentos são mostrados os resultados de exploração das diferentes dualizações.
+
+\section{Metaheurística Simulated Annealing -- SA}
+
+Além da relaxação Lagrangiana, foi desenvolvida uma heurística baseada na técnica de Simulated Annealing (SA) aplicada sobre a relaxação linear (LP) do modelo exato do TATSP. Essa abordagem visa explorar o espaço de soluções fracionárias da LP para obter boas soluções inteiras viáveis, construindo assim limites superiores de qualidade para o problema.
+
+A ideia central consiste em relaxar a integridade das variáveis binárias do modelo original (ILP), permitindo que assumam valores contínuos entre 0 e 1. A solução da LP contêm valores fracionários para as variáveis de decisão $x_a$ e $y_r$, os quais serão utilzados como "guias probabilísticos" para a construção de soluções inteiras (\emph{upper bounds}). No entanto, essas soluções fracionárias não necessariamente satisfazem, todas as restrições do TATSP, especialmente aquelas relacionadas à ativação condicional dos arcos. Para isso, empregamos uma estratégia de viabilização baseada em fixações progressivas das variáveis de ativação $y_r$.
+
+A ideia de utilizar o SA partiu de uma curiosidade de exploração e após ver alguns trabalhos que utilizavam essa metaheurística para problemas de variantes baseadas no TSP. Porém, foi mais comum encontrar o SA inserido em híbridos mais complexos. Aqui, foi utilizado o SA puro visando também explorar a abordagem para um problema relativamente novo (introduzido em 2025 por \textcite{Carmine2025}) na literatura.
+
+O algoritmo proposto visa utilizar os mecanismos de exploração do SA para aplicar fixações sucessivas às variáveis $y_r$ a cada iteração. São utilizados três operadores para definir o critério de fixação das variáveis e, além disso, o modelo relaxado é modificado para que $x_a$ e $u$ retomem suas características de binárias e inteiras, respectivamente. A intenção por trás disso é reduzir o problema por meio da fixação de variáveis ligadas aos gatilhos (que se mostraram ordens de grandeza mais impactantes nas instâncias) mas ainda ser capaz de usar a solução do solver como um caminho viável. Dessa forma, a cada iteração é possível produzir um \emph{upper bound} em tempo polinomial $O(NTriggers*NArcs)$ no pior caso.
+
+A cada iteração a busca realizada escolhe, aleatoriamente uma estratégia de fixação dentre as três implementadas. Essas estratégias se baseiam num sistema de pontuação para os gatilhos. Essa pontuação é construída a partir do peso do arco na relaxação linear ($x_a$) e na diferença entre o custo base do arco alvo e seu custo modificado após ter o gatilho ativado. Sendo assim, os operadores disponíveis tem políticas próprias que definem quais gatilhos $y_r$ serão zerados por possuir um \emph{score} considerado ruim.
+
+O primeiro operador é o \emph{topk} que seleciona uma fração definida ($20\%$, por exemplo) das piores pontuações encontradas para ser fixada em zero. O segundo é o \emph{weighted} que atribui pesos aos gatilhos e coleta uma fração definida deles para fixar. E o terceiro é o \emph{threshold} que basicamente olha para os valores das variáveis fracionárias $y_r$ na relaxação e busca aqueles que superam um determinado valor (\emph{threshold}) para serem fixados.
+
+Em seguida, após aplicar o operador, o novo modelo é enviado ao \emph{solver} e resolvido, produzindo um caminho viável porém com um custo distorcido. Para tanto é utilizado um método que recomputa o valor da função objetivo para atender ao problema original, produzindo assim um limitante superior válido.
+
+E, seguindo o fluxo do \emph{Simulated Annealing}, é utilizado o critério de Metropolis \cite{Gendreau2010} para definir o aceite do novo limitante como sendo o melhor. Ao inserir uma probabilidade de aceitar soluções piores, é possível sair de eventuais ótimos locais e explorar melhor o espaço de solução.
+
+Essa heurística de viabilização baseada em SA pode ser promissora, visto que permite um controle mais refinado da complexidade computacional e por aproveitar o custo informativo do LP relaxado. Sua flexibilidade permite adaptações tanto na definição dos operadores quanto nas estratégias de resfriamento, viabilizando uma busca balanceada entre exploração e intensificação\cite{Gendreau2010}.
+
+Por fim, vale destacar a importância de um refinamento na calibração dos parâmetros, tanto da Relaxação Lagrangiana quanto da metaheurística do \emph{Simulated Annealing}.

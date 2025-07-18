@@ -1,0 +1,58 @@
+\documentclass[12pt]{report}
+
+\input{preamble}  % Loads packages and custom commands
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+
+    {\Large UNICAMP - Instituto de Computação \par}
+    {\Large MO420 - Programação Linear Inteira \par}
+
+    \vspace{0.5cm}
+
+    {\Large \textbf{Trabalho Final} \par}
+    {\Large \textbf{Explorando Abordagens para o Trigger Arc Traveling Salesperson Problem} \par}
+    \vspace{1cm}
+
+    {\Large \textbf{Aluno:} Vitor Antônio Pimenta Silva \par}
+    \vspace{0.5cm}
+
+    {\Large \textbf{Professor:} Prof. Dr. Flávio Keidi Miyazawa \par}
+    \vspace{0.7cm}
+
+    {\Large \textbf{Resumo} \par}  
+    \vspace{0.5cm}
+
+    \begin{flushleft}
+        \justifying
+        Neste trabalho foram abordadas diferentes técnicas para produzir limitantes superiores e inferiores para o \emph{Trigger Arc Traveling Salesperson Problem} (TATSP). Nesta variante do TSP o objetivo é minimizar os custos de um ciclo hamiltoniano porém com a adição de efeitos dinâmicos sobre as arestas. Por se tratar de um TSP com restrições adicionais, é um problema NP-Difícil e, portanto, abordagens alternativas serão exploradas para contornar a complexidade do modelo. Foram elaboradas soluções para o programa linear inteiro (ILP) baseando-se em um modelo matemático de um trabalho prévio e, ao todo, foram desenvolvidas: uma abordagem de solução direta do ILP, utilizando o Gurobi; uma solução via Relaxação Lagrangiana (RL); e uma metaheurística \emph{Simulated Annealing} baseada na relaxação linear e em fixação de variáveis via operadores.
+    \end{flushleft}
+ 
+    \vfill
+    {\Large Julho, 2025 \par}
+\end{titlepage}
+
+% \titleformat{\chapter}[hang]{\normalfont\huge\bfseries}{\thechapter}{1em}{} %
+
+\titlespacing*{\chapter}{0pt}{0pt}{10pt} % Removes line break
+\titleformat{\chapter}[hang]  % Customizes chapter titles
+  {\huge\bfseries}  % Font style (huge, bold)
+  {\thechapter}  % Shows only the chapter number (without "Chapter")
+  {1em}  % Space between number and title
+  {}  % Additional formatting (empty in this case)
+
+% Chapters
+\input{chapters/problem_description.tex}
+\input{chapters/methodology.tex}
+\input{chapters/experiments.tex}
+\input{chapters/final_remarks.tex}
+
+\printbibliography
+
+% Customize references title
+% \bibliography{references}
+
+
+\end{document}

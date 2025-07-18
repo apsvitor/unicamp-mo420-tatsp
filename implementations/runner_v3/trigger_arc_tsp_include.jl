@@ -240,8 +240,8 @@ mutable struct TriggerArcTSP
 	 		 	_maxtime_lb_colgen::IntType,
 				
 			 	_maxtime_ub_lp::IntType,
-				_maxtime_ub_colgen::IntType,
 				_maxtime_ub_rlxlag::IntType,
+				_maxtime_ub_colgen::IntType,
 			 	_maxtime_ilp::IntType,
 				_ra::IntType,
 				_logfilename)

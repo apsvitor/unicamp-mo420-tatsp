@@ -1,6 +1,13 @@
 CONFIG_FILE = config.mk
 include $(CONFIG_FILE)
-
+# --- DEBUGGING START ---
+.PHONY: debug_config
+debug_config:
+	@echo "DEBUG: MAXTIME_LB_LP is $(MAXTIME_LB_LP)"
+	@echo "DEBUG: SEED_NUMBER is $(SEED_NUMBER)"
+	@echo "DEBUG: VERBOSE_MODE is $(VERBOSE_MODE)"
+	@echo "DEBUG: INSTANCES_DIR is $(INSTANCES_DIR)"
+# --- DEBUGGING END ---
 # Encontra todos os arquivos .txt no diretório de instâncias
 # A função $(wildcard ...) expande para uma lista de arquivos que correspondem ao padrão
 # A função $(notdir ...) remove o caminho do diretório, deixando apenas o nome do arquivo
@@ -36,13 +43,13 @@ test:
 	julia --project=. trigger_arc_tsp.jl \
 			--inputfilename $(TEST_INSTANCE) \
 			--seednumber 1234 \
-			--maxtime_lb_lp 1010 \
-			--maxtime_lb_rlxlag 1020 \
-			--maxtime_lb_colgen 1030 \
-			--maxtime_ub_lp 1040 \
-			--maxtime_ub_rlxlag 1050 \
-			--maxtime_ub_colgen 1060 \
-			--maxtime_ilp 1070 \
+			--maxtime_lb_lp 600 \
+			--maxtime_lb_rlxlag 600 \
+			--maxtime_lb_colgen 600 \
+			--maxtime_ub_lp 600 \
+			--maxtime_ub_rlxlag 600 \
+			--maxtime_ub_colgen 600 \
+			--maxtime_ilp 600 \
 			--ra 291207 \
 			--logfile trigger_arc_tsp.log \
 			--verbose
